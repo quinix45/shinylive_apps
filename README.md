@@ -2,6 +2,7 @@ A repository for shiny apps that I use for html presentations
 
 ## Quick Links
 
+**Interactive P_value for Normal Sampling Distribution:** https://quinix45.github.io/shinylive_apps/P_val_norm/
 
 **Interactive Sampling Distribution:** https://quinix45.github.io/shinylive_apps/Sampling_dist/
 
