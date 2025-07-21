@@ -133,5 +133,5 @@ shinyApp(ui = ui, server = server)
 
 
 
-shinylive::export(appdir = ".",
-                 destdir = "docs/")
+# shinylive::export(appdir = ".",
+#                  destdir = "docs/")
