@@ -1,137 +1,121 @@
 library(shiny)
 library(munsell)
+library(ggplot2)
 library(bslib)
-library(Deriv)
-library(plotly)
-library(curl)
 
+NLL <- function(df, a = 1, theta = 0, b = 0, d = 1, q = 0, Y =.5, sigma = 2) {
+  term1 <- 0.5 * df * log(df)
+  term2 <- 0.5 * (-1 - df) * log(df + (exp(2 * a * theta) * ( -b - d * q + Y)^2) / sigma^2)
+  term3 <- log(exp(-a * theta) * sigma)
+  term4 <- log(beta(df / 2, 1 / 2))
+  
+  result <- term1 + term2 - term3 - term4
+  
+  # return negative LL
+  return(-result)
+}
+
+find_min_theta <- function(a = 1, df = 3, b = 0, d = 1, q = 0, Y = 0.5, sigma = 2) {
+  # We restrict df > 0 to avoid domain issues
+  opt <- optimize(
+    f = NLL,
+    interval = c(-20, 20), 
+    a = a, df = df, b = b, d = d, q = q, Y = Y, sigma = sigma,
+    tol = 1e-8
+  )
+  
+  return(list(
+    theta_min = opt$minimum,
+    NLL_min = opt$objective
+  ))
+}
+
+
+theme_set(theme_classic(base_size = 16, 
+                        base_family = 'serif'))
+
+# Define the UI 
 ui <- bslib::page_fluid(
   # Main plot area
   
   mainPanel(
     
-    fluidRow(
-      column(2, "Generate data:",
-             numericInput("Mean", "\u03BC", value = 8, step = 1),
-             numericInput("SD", "\u03C3", value = 10, min = 0.1, step = 0.25),
-             numericInput("N", "N", value = 200, min = 2, step = 20)),
-      
-      column(10,  bslib::card(plotlyOutput(outputId = "NLL_plot"), full_screen = TRUE),
-             "Note: Plane is slightly off near MLEs due to rounding needed for fast rendering of visualization."))
-  ))
+    fluidRow(column(12, plotOutput("distPlot", height = "370px", width = "150%")))),
+  
+  fluidRow(
+    column(1, numericInput("Y", "Y", value = .5, min = -20, max = 20, step = .2)),
+    column(1, numericInput("b", "b", value = 0, min = -10, max = 10, step = 0.25)),
+    column(1, numericInput("d", "d", value = 1, min = 0.1, max = 10, step = 0.25)),
+    column(1, numericInput("sigma", "sigma", value = 1, min = 0.1, max = 8, step = 0.25)),
+    column(1, numericInput("a", "a", value = 1, min = .1, max = 4, step = 0.25)),
+    column(1, numericInput("q", "q", value = 0, min = -2, max = 2, step = 1)),
+    column(1, numericInput("df", "df", value = 3, min = 0.1, max = 200, step = 1)))
+)
 
 
 
 server <- function(input, output, session) {
   
   
-  output$NLL_plot <- renderPlotly({
-    nll_one <- deriv(~ -2 * (-0.5 * log(2 * pi * sigma^2) - ((x - mu)^2) / (2 * sigma^2)),
-                     c("mu", "sigma"), function.arg = TRUE, hessian = TRUE)
+  
+  output$distPlot <- renderPlot({
+    # Get values from inputs
     
-    nll <- function(b) {
-      v <- nll_one(b[1], b[2])
-      f <- sum(v)
-      gr <- colSums(attr(v, "gradient"))
-      hess <- apply(attr(v, "hessian"), c(2, 3), sum)
-      attributes(f) <- list(gradient = gr, hessian = hess)
-      f
+    
+    if(input$Y == input$b + input$b*input$q){
+      
+      lab_plot <- paste("theta[MLE] == infinity")
+      
+      min_theta <- c(-30, 30)
+      
+    }else{
+      
+      min_theta <- find_min_theta(a = input$a, 
+                                  Y = input$Y,
+                                  df = input$df, 
+                                  sigma = input$sigma, 
+                                  b = input$b,
+                                  d = input$d, 
+                                  q = input$q)
+      
+      lab_plot <-  paste("theta[MLE] == ", round(unlist(min_theta[1]), 2))
     }
     
     
-    # Sample data
-    set.seed(87824)
-    
-    parameters <- c(input$Mean, input$SD)
-    N <- input$N
-    
-    # global variable
-    x <<- rnorm(N, mean = parameters[1], sd = parameters[2])
-    
-    # Grid
-    sigma_lb <- ifelse(parameters[2] <= 5, 0.1, parameters[2] - 5)
-    
-    mu_values <- seq(parameters[1] - 5, parameters[1] + 5, by = 0.1)
-    sigma_values <- seq(sigma_lb, parameters[2] + 5, by = 0.1)
-    
-    # Allocate matrices
-    LL_matrix <- matrix(NA, length(mu_values), length(sigma_values))
-    hover_text <- matrix("", length(mu_values), length(sigma_values))
-    
-    # Compute LL, gradients, and Hessians
-    for (i in 1:length(mu_values)) {
-      for (j in 1:length(sigma_values)) {
-        mu <- mu_values[i]
-        sigma <- sigma_values[j]
-        result <- nll(c(mu, sigma))
-        
-        grad <- attr(result, "gradient")
-        hess <- attr(result, "hessian")
-        
-        LL_matrix[i, j] <- result
-        
-        hover_text[j, i] <- paste0(
-          "mu: ", round(mu, 2), "<br>",
-          "sigma: ", round(sigma, 2), "<br>",
-          "NLL: ", round(result, 2), "<br>",
-          "∇mu: ", round(grad[1], 2), ", ∇²mu: ", round(hess[1, 1], 2), "<br>",
-          "∇sigma: ", round(grad[2], 2),", ∇²sigma: ", round(hess[2, 2], 2), "<br>",
-          #,"∇²mu_sigma: ", round(hess[1, 2], 2
-          "Update Rule: par - (∇par/∇²par)", "<br>",
-          "mu<sub>new</sub> = ", round(round(mu, 2) - round(grad[1], 2)/round(hess[1, 1], 2), 2),
-          ", sigma<sub>new</sub> = ", round(round(sigma, 2) - round(grad[2], 2)/round(hess[2, 2], 2), 2))
-      }
-    }
-    
-    
-    #  minimum
-    mu_min <- round(mean(x), 2)
-    sigma_min <- round(sd(x), 2)
-    nll_min <- round(nll(c(mu_min, sigma_min)), 2)
-    
-    # Plot
-    plot_ly(
-      x = mu_values,
-      y = sigma_values,
-      z = LL_matrix,
-      type = "surface",
-      text = hover_text,
-      hoverinfo = "text"
-    ) %>%
-      layout(
-        scene = list(
-          xaxis = list(title = "mu"),
-          yaxis = list(title = "sigma"),
-          zaxis = list(title = "Negative Log-Likelihood")
-        )
-      ) %>%
-      # Add point at estimated mean/sd
-      add_markers(
-        x = mu_min,
-        y = sigma_min,
-        z = nll_min,
-        marker = list(color = "red", size = 7),
-        name = "Minimum",
-        hoverinfo = "text",
-        text = paste0(
-          "<b>Maximum Likelihood Estimate </b><br>",
-          "mu = ", round(mu_min, 2), "<br>",
-          "sigma = ", round(sigma_min, 2), "<br>",
-          "NLL = ", round(nll_min, 2)
-        )
-      )
+    # Create the plot
+    ggplot() +
+      geom_function(fun = NLL, args = list(a = input$a, 
+                                           Y = input$Y,
+                                           df = input$df, 
+                                           sigma = input$sigma, 
+                                           b = input$b,
+                                           d = input$d, 
+                                           q = input$q), 
+                    color = "#1b305c")+
+      geom_point(aes(x = unlist(min_theta[1]),
+                     y = unlist(min_theta[2])),
+                 col = "red",
+                 size = 2) +
+      annotate("text", 
+               x = -Inf, y = Inf, 
+               label = lab_plot,
+               parse = TRUE,
+               hjust = -.3, vjust = 1, 
+               size = 5) +
+      xlab("\u03b8") +
+      ylab(expression(NLL*(theta))) +
+      xlim(-6, 6)
     
     
     
-  })
+  }, res = 100)
 }
 
 
 # Run the Shiny app
 shinyApp(ui = ui, server = server)
+# 
+# 
+# shinylive::export(appdir = ".",
+#                  destdir = "docs/")
 
-
-
-
-shinylive::export(appdir = ".",
-                 destdir = "docs/")
