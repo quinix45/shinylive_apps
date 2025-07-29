@@ -2,6 +2,8 @@ A repository for shiny apps that I use for html presentations. These apps are bu
 
 ## Quick Links
 
+**Interactive 2PL IRT model:** https://quinix45.github.io/shinylive_apps/2PL_interactive/ 
+
 **Visualization of Multivariate Maximum Likelihood of Normal Distribution Parameters:** https://quinix45.github.io/shinylive_apps/MLE_mu_sigma/
 
 - The visualization also includes first and second derivatives of parameters at each point of the plane. The updated parameter given a generic updated rule is also included. The visualization is intended to give the intuition of multivariate optimization through gradient descent involving first and second derivatives.
