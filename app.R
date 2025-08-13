@@ -1,73 +1,120 @@
 library(shiny)
-library(plotly)
 library(munsell)
+library(ggplot2)
 library(bslib)
 
-# Define 2PL IRF function
-irf_2PL <- function(theta, a = 1, b = 0) {
-  exp(a * (theta - b)) / (1 + exp(a * (theta - b)))
+NLL <- function(df, a = 1, theta = 0, b = 0, d = 1, q = 0, Y =.5, sigma = 2) {
+  term1 <- 0.5 * df * log(df)
+  term2 <- 0.5 * (-1 - df) * log(df + (exp(2 * a * theta) * ( -b - d * q + Y)^2) / sigma^2)
+  term3 <- log(exp(-a * theta) * sigma)
+  term4 <- log(beta(df / 2, 1 / 2))
+  
+  result <- term1 + term2 - term3 - term4
+  
+  # return negative LL
+  return(-result)
 }
 
-# Set serif theme
-theme_set(theme_classic(base_size = 16, base_family = "Times New Roman"))
+find_min_theta <- function(a = 1, df = 3, b = 0, d = 1, q = 0, Y = 0.5, sigma = 2) {
+  # We restrict df > 0 to avoid domain issues
+  opt <- optimize(
+    f = NLL,
+    interval = c(-20, 20), 
+    a = a, df = df, b = b, d = d, q = q, Y = Y, sigma = sigma,
+    tol = 1e-8
+  )
+  
+  return(list(
+    theta_min = opt$minimum,
+    NLL_min = opt$objective
+  ))
+}
 
-# Define UI
+
+theme_set(theme_classic(base_size = 16, 
+                        base_family = 'serif'))
+
+# Define the UI 
 ui <- bslib::page_fluid(
+  # Main plot area
+  
   mainPanel(
-    fluidRow(column(12, plotlyOutput("distPlot", height = "370px", width = "150%")))
-  ),
+    
+    fluidRow(column(12, plotOutput("distPlot", height = "370px", width = "150%")))),
   
   fluidRow(
-    column(3, numericInput("a", "a (discrimination)", value = 1, min = 0, max = 8, step = 0.1)),
-    column(3, numericInput("b", "b (difficulty)", value = 0, min = -6, max = 6, step = 0.1))
-  )
+    column(1, numericInput("Y", HTML("Y<sub>jiq</sub>"), value = .5, min = -20, max = 20, step = .2)),
+    column(1, numericInput("b", HTML("b<sub>i</sub>"), value = 0, min = -10, max = 10, step = 0.25)),
+    column(1, numericInput("d", HTML("d<sub>i</sub>"), value = 1, min = 0.1, max = 10, step = 0.25)),
+    column(1, numericInput("sigma", HTML("&sigma;<sub>i</sub>"), value = 1, min = 0.1, max = 8, step = 0.25)),
+    column(1, numericInput("a", HTML("a<sub>i</sub>"), value = 1, min = .1, max = 4, step = 0.25)),
+    column(1, numericInput("q", HTML("q"), value = 0, min = -2, max = 2, step = 1)),
+    column(1, numericInput("df", HTML("df<sub>i</sub>"), value = 3, min = 0.1, max = 200, step = 1)))
 )
 
-# Define server
+
+
 server <- function(input, output, session) {
   
-  output$distPlot <- renderPlotly({
+  
+  
+  output$distPlot <- renderPlot({
+    # Get values from inputs
     
-    theta <- seq(-4, 4, length.out = 500)
-    prob <- irf_2PL(theta, a = input$a, b = input$b)
     
-    # Custom hover text
-    hover_text <- paste0(
-      "θ = ", sprintf("%.2f", theta), "<br>",
-      "P(Y = 1|θ) = ", sprintf("%.2f", prob)
-    )
+    if(input$Y == input$b + input$b*input$q){
+      
+      lab_plot <- paste("theta[MLE] == infinity")
+      
+      min_theta <- c(-30, 30)
+      
+    }else{
+      
+      min_theta <- find_min_theta(a = input$a, 
+                                  Y = input$Y,
+                                  df = input$df, 
+                                  sigma = input$sigma, 
+                                  b = input$b,
+                                  d = input$d, 
+                                  q = input$q)
+      
+      lab_plot <-  paste("theta[MLE] == ", round(unlist(min_theta[1]), 2))
+    }
     
-    plot_ly(
-      x = ~theta, y = ~prob,
-      type = "scatter", mode = "lines",
-      text = hover_text, hoverinfo = "text",
-      line = list(color = "#1b305c"),
-      name = "2PL IRF"
-    ) %>%
-      layout(
-        xaxis = list(
-          title = "θ",
-          range = c(-4, 4),
-          zeroline = FALSE,
-          showline = TRUE,
-          linecolor = 'black'
-        ),
-        yaxis = list(
-          title = "P(Y = 1|θ)",
-          range = c(0, 1),
-          zeroline = FALSE,
-          showline = TRUE,
-          linecolor = 'black'
-        ),
-        template = "plotly_white"
-      )
-  })
+    
+    # Create the plot
+    ggplot() +
+      geom_function(fun = NLL, args = list(a = input$a, 
+                                           Y = input$Y,
+                                           df = input$df, 
+                                           sigma = input$sigma, 
+                                           b = input$b,
+                                           d = input$d, 
+                                           q = input$q), 
+                    color = "#1b305c")+
+      geom_point(aes(x = unlist(min_theta[1]),
+                     y = unlist(min_theta[2])),
+                 col = "red",
+                 size = 2) +
+      annotate("text", 
+               x = -Inf, y = Inf, 
+               label = lab_plot,
+               parse = TRUE,
+               hjust = -.3, vjust = 1, 
+               size = 5) +
+      xlab("\u03b8") +
+      ylab(expression(NLL*(theta))) +
+      xlim(-6, 6)
+    
+    
+    
+  }, res = 100)
 }
 
-# Run app
+
+# Run the Shiny app
 shinyApp(ui = ui, server = server)
 # 
 # 
 # shinylive::export(appdir = ".",
 #                  destdir = "docs/")
-

@@ -43,13 +43,13 @@ ui <- bslib::page_fluid(
     fluidRow(column(12, plotOutput("distPlot", height = "370px", width = "150%")))),
   
   fluidRow(
-    column(1, numericInput("Y", "Y", value = .5, min = -20, max = 20, step = .2)),
-    column(1, numericInput("b", "b", value = 0, min = -10, max = 10, step = 0.25)),
-    column(1, numericInput("d", "d", value = 1, min = 0.1, max = 10, step = 0.25)),
-    column(1, numericInput("sigma", "sigma", value = 1, min = 0.1, max = 8, step = 0.25)),
-    column(1, numericInput("a", "a", value = 1, min = .1, max = 4, step = 0.25)),
-    column(1, numericInput("q", "q", value = 0, min = -2, max = 2, step = 1)),
-    column(1, numericInput("df", "df", value = 3, min = 0.1, max = 200, step = 1)))
+    column(1, numericInput("Y", HTML("Y<sub>jiq</sub>"), value = .5, min = -20, max = 20, step = .2)),
+    column(1, numericInput("b", HTML("b<sub>i</sub>"), value = 0, min = -10, max = 10, step = 0.25)),
+    column(1, numericInput("d", HTML("d<sub>i</sub>"), value = 1, min = 0.1, max = 10, step = 0.25)),
+    column(1, numericInput("sigma", HTML("&sigma;<sub>i</sub>"), value = 1, min = 0.1, max = 8, step = 0.25)),
+    column(1, numericInput("a", HTML("a<sub>i</sub>"), value = 1, min = .1, max = 4, step = 0.25)),
+    column(1, numericInput("q", HTML("q"), value = 0, min = -2, max = 2, step = 1)),
+    column(1, numericInput("df", HTML("df<sub>i</sub>"), value = 3, min = 0.1, max = 200, step = 1)))
 )
 
 
@@ -118,4 +118,3 @@ shinyApp(ui = ui, server = server)
 # 
 # shinylive::export(appdir = ".",
 #                  destdir = "docs/")
-

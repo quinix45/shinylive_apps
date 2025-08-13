@@ -14,17 +14,15 @@ ui <- bslib::page_fluid(
     fluidRow(column(12, plotOutput("distPlot", height = "370px", width = "150%")))),
   
   fluidRow(
-    column(2, numericInput("b", "b", value = 0, min = -10, max = 10, step = 0.25)),
-    column(2, numericInput("d", "d", value = 1.5, min = 0.1, max = 10, step = 0.25)),
-    column(2, numericInput("sigma", "sigma", value = .5, min = 0, max = 5, step = 0.25)),
-    column(2, numericInput("a", "a", value = 1, min = 0, max = , step = 0.25)),
-    column(2, numericInput("theta", "theta", value = 0, min = -4, max = 4, step = 0.25)),
-    column(2, numericInput("df", "df", value = 20, min = 0.1, max = 200, step = 1))))
+    column(2, numericInput("b", HTML("b<sub>i</sub>"), value = 0, min = -10, max = 10, step = 0.25)),
+    column(2, numericInput("d", HTML("d<sub>i</sub>"), value = 1.5, min = 0.1, max = 10, step = 0.25)),
+    column(2, numericInput("sigma", HTML("&sigma;<sub>i</sub>"), value = .5, min = 0, max = 5, step = 0.25)),
+    column(2, numericInput("a", HTML("a<sub>i</sub>"), value = 1, min = 0, max = , step = 0.25)),
+    column(2, numericInput("theta", HTML("&theta;<sub>j</sub>"), value = 0, min = -4, max = 4, step = 0.25)),
+    column(2, numericInput("df", HTML("df<sub>i</sub>"), value = 20, min = 0.1, max = 200, step = 1))))
 
 
 ####### Plot function #######
-
-
 
 library(extraDistr)
 
@@ -60,7 +58,7 @@ Model_plot_full <- function( b = 0, d = 2, sd = 1, df = 8, theta = 0, a = 1, tit
     annotate("text", x= means[4], y = dlst(means[4], mu = means[4], sigma = sd/exp(a*theta), df =df) +.05, label="75%") +
     geom_segment(aes(x = means[5], xend = means[5], y = 0, yend = dlst(means[5], mu = means[5], sigma = sd/exp(a*theta), df =df)), linetype = 2) +
     annotate("text", x= means[5], y = dlst(means[5], mu = means[5], sigma = sd/exp(a*theta), df =df) +.05, label="95%") +
-    xlab("Model Implied Accuarcy Distributions at 5 Quantiles") +
+    xlab("Expected Signed Error Distribution") +
     xlim(-7, 7) +
     ylab("") +
     ggtitle(title) +
