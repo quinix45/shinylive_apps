@@ -16,7 +16,6 @@ NLL <- function(df, a = 1, theta = 0, b = 0, d = 1, q = 0, Y =.5, sigma = 2) {
 }
 
 find_min_theta <- function(a = 1, df = 3, b = 0, d = 1, q = 0, Y = 0.5, sigma = 2) {
-  # We restrict df > 0 to avoid domain issues
   opt <- optimize(
     f = NLL,
     interval = c(-20, 20), 

@@ -1,120 +1,127 @@
 library(shiny)
 library(munsell)
-library(ggplot2)
 library(bslib)
+library(ggplot2)
 
-NLL <- function(df, a = 1, theta = 0, b = 0, d = 1, q = 0, Y =.5, sigma = 2) {
-  term1 <- 0.5 * df * log(df)
-  term2 <- 0.5 * (-1 - df) * log(df + (exp(2 * a * theta) * ( -b - d * q + Y)^2) / sigma^2)
-  term3 <- log(exp(-a * theta) * sigma)
-  term4 <- log(beta(df / 2, 1 / 2))
-  
-  result <- term1 + term2 - term3 - term4
-  
-  # return negative LL
-  return(-result)
-}
-
-find_min_theta <- function(a = 1, df = 3, b = 0, d = 1, q = 0, Y = 0.5, sigma = 2) {
-  # We restrict df > 0 to avoid domain issues
-  opt <- optimize(
-    f = NLL,
-    interval = c(-20, 20), 
-    a = a, df = df, b = b, d = d, q = q, Y = Y, sigma = sigma,
-    tol = 1e-8
-  )
-  
-  return(list(
-    theta_min = opt$minimum,
-    NLL_min = opt$objective
-  ))
-}
-
-
-theme_set(theme_classic(base_size = 16, 
-                        base_family = 'serif'))
-
-# Define the UI 
-ui <- bslib::page_fluid(
-  # Main plot area
-  
-  mainPanel(
-    
-    fluidRow(column(12, plotOutput("distPlot", height = "370px", width = "150%")))),
-  
+ui <- fluidPage(
   fluidRow(
-    column(1, numericInput("Y", HTML("Y<sub>jiq</sub>"), value = .5, min = -20, max = 20, step = .2)),
-    column(1, numericInput("b", HTML("b<sub>i</sub>"), value = 0, min = -10, max = 10, step = 0.25)),
-    column(1, numericInput("d", HTML("d<sub>i</sub>"), value = 1, min = 0.1, max = 10, step = 0.25)),
-    column(1, numericInput("sigma", HTML("&sigma;<sub>i</sub>"), value = 1, min = 0.1, max = 8, step = 0.25)),
-    column(1, numericInput("a", HTML("a<sub>i</sub>"), value = 1, min = .1, max = 4, step = 0.25)),
-    column(1, numericInput("q", HTML("q"), value = 0, min = -2, max = 2, step = 1)),
-    column(1, numericInput("df", HTML("df<sub>i</sub>"), value = 3, min = 0.1, max = 200, step = 1)))
+    column(2, 
+           "Prior Shape:",
+           numericInput("alpha", "\u03B1", value = 8, min = 0.1, step = 1),
+           numericInput("beta", "\u03B2", value = 9, min = 0.1, step = 1),
+           numericInput("true_prob", "True Probability", value = 0.6, min = 0.01, max = 0.99, step = 0.01),
+           numericInput("N", "N Total", value = 100, min = 1, max = 1000, step = 1),
+           numericInput("N_available", "N Available", value = 10, min = 1, max = 100, step = 1),
+           actionButton("sample_btn", "Draw Samples")
+    ),
+    column(10,  
+           bslib::card(plotOutput(outputId = "Prior_plot"), full_screen = TRUE),
+           HTML("Note: The plot will show the estimated true probability of a binary variable with (MAP) and without priors (ML) if N data points are available, indicated by <b>N available</b>. The values of the <b>N available</b> data point (0 or 1) is also shown. Increase to see how the Estimates update!")
+    )
+  )
 )
-
-
 
 server <- function(input, output, session) {
   
+  # Dynamically update the max of N_available when N changes
+  observe({
+    updateNumericInput(session, "N_available", max = input$N)
+    if (input$N_available > input$N) {
+      updateNumericInput(session, "N_available", value = input$N)
+    }
+  })
   
+  # Reactive value to store sampled data
+  sampled_data <- reactiveVal(NULL)
   
-  output$distPlot <- renderPlot({
-    # Get values from inputs
+  # Update sampled data when button is pressed
+  observeEvent(input$sample_btn, {
+    sampled_data(rbinom(input$N, size = 1, prob = input$true_prob))
+  })
+  
+  output$Prior_plot <- renderPlot({
     
+    alpha <- input$alpha
+    beta <- input$beta
+    true_prob <- input$true_prob
+    mode_beta <- (alpha - 1)/(alpha + beta - 2)
+    max_dens <- dbeta(mode_beta, alpha, beta)
     
-    if(input$Y == input$b + input$b*input$q){
+    p_grid <- seq(from = 0.01, to = 0.99, length.out = 300)
+    
+    if (is.null(sampled_data())) {
+      # Plot before any samples: only prior + true probability
+      segments_df <- data.frame(
+        x = true_prob,
+        xend = true_prob,
+        y = 0,
+        yend = max_dens/2,
+        label = "True Probability"
+      )
       
-      lab_plot <- paste("theta[MLE] == infinity")
+      ggplot(data = data.frame(x = c(0, 1)), aes(x = x)) +
+        geom_function(fun = dbeta, args = list(shape1 = alpha, shape2 = beta), 
+                      color = "blue", lty = 2) +
+        annotate("text", x = mode_beta, y = max_dens/1.2, label = "Prior \n Distribution") +
+        geom_segment(data = segments_df,
+                     aes(x = x, xend = xend, y = y, yend = yend, color = label),
+                     size = 1.5) +
+        theme_classic() +
+        scale_color_manual(values = c("black")) +
+        scale_y_continuous(expand = c(0,0)) +
+        theme(axis.title.y=element_blank(),
+              axis.text.y=element_blank(),
+              axis.ticks.y=element_blank(),
+              axis.line.y = element_blank()) +
+        labs(color = "")
       
-      min_theta <- c(-30, 30)
+    } else {
+      # Plot after samples: prior + ML/MAP estimates
+      prior <- dbeta(p_grid, shape1 = alpha, shape2 = beta)
+      data <- sampled_data()
+      ML_res <- MAP_res <- numeric(length(data))
       
-    }else{
+      for(i in 1:length(data)){
+        likelihood <- sapply(data[1:i], function(x) dbinom(x, size = 1, prob = p_grid))
+        max_ml <- which.max(rowSums(log(likelihood)))
+        max_map <- which.max(rowSums(log(likelihood)) + log(prior))
+        ML_res[i] <- p_grid[max_ml]
+        MAP_res[i] <- p_grid[max_map]
+      }
       
-      min_theta <- find_min_theta(a = input$a, 
-                                  Y = input$Y,
-                                  df = input$df, 
-                                  sigma = input$sigma, 
-                                  b = input$b,
-                                  d = input$d, 
-                                  q = input$q)
+      N_data <- min(input$N_available, length(data))
+      segments_df <- data.frame(
+        x = c(true_prob, ML_res[N_data], MAP_res[N_data]),
+        xend = c(true_prob, ML_res[N_data], MAP_res[N_data]),
+        y = 0,
+        yend = max_dens/2,
+        label = c("True Probability", "No Prior", "With Prior")
+      )
       
-      lab_plot <-  paste("theta[MLE] == ", round(unlist(min_theta[1]), 2))
+      ggplot(data = data.frame(x = c(0, 1)), aes(x = x)) +
+        geom_function(fun = dbeta, args = list(shape1 = alpha, shape2 = beta), color = "blue", lty = 2) +
+        annotate("text", x = mode_beta, y = max_dens/1.2, label = "Prior \n Distribution") +
+        annotate("text", x = mode_beta, y = max_dens/1.4, label = paste("data point", input$N_available, "\n was a", data[input$N_available]))+
+        geom_segment(data = segments_df,
+                     aes(x = x, xend = xend, y = y, yend = yend, color = label),
+                     size = 1) +
+        scale_color_manual(values = c("red", "black", "blue")) +
+        theme_classic() +
+        scale_y_continuous(expand = c(0,0)) +
+        theme(axis.title.y=element_blank(),
+              axis.text.y=element_blank(),
+              axis.ticks.y=element_blank(),
+              axis.line.y = element_blank()) +
+        labs(color = "")
     }
     
-    
-    # Create the plot
-    ggplot() +
-      geom_function(fun = NLL, args = list(a = input$a, 
-                                           Y = input$Y,
-                                           df = input$df, 
-                                           sigma = input$sigma, 
-                                           b = input$b,
-                                           d = input$d, 
-                                           q = input$q), 
-                    color = "#1b305c")+
-      geom_point(aes(x = unlist(min_theta[1]),
-                     y = unlist(min_theta[2])),
-                 col = "red",
-                 size = 2) +
-      annotate("text", 
-               x = -Inf, y = Inf, 
-               label = lab_plot,
-               parse = TRUE,
-               hjust = -.3, vjust = 1, 
-               size = 5) +
-      xlab("\u03b8") +
-      ylab(expression(NLL*(theta))) +
-      xlim(-6, 6)
-    
-    
-    
-  }, res = 100)
+  })
 }
 
-
-# Run the Shiny app
 shinyApp(ui = ui, server = server)
-# 
-# 
+
+
+# create shinylive files (then move to approapriate shinyapp directory)
+
 # shinylive::export(appdir = ".",
 #                  destdir = "docs/")

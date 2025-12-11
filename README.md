@@ -1,6 +1,10 @@
-A repository for shiny apps that I use for html presentations. These apps are built with `shinylive` and run serverless!
+A repository for shiny apps that I use for html presentations or teaching purposes. These apps are built with `shinylive` and run serverless!
 
 ## Quick Links
+
+**Estimates updates of Binomial Distribution Parameter:** https://quinix45.github.io/shinylive_apps/Binomial_dist_prior/ 
+
+- An interactive example of how parameter estimates of the probability parameter of a binary random variable (binomial distribution) update based with a prior (maximum a posteriori) and without a prior (maximum likelihood). This is meant to give an intuition of the impact of prior distributions on parameter estimates.
 
 **Interactive 2PL IRT model:** https://quinix45.github.io/shinylive_apps/2PL_interactive/ 
 

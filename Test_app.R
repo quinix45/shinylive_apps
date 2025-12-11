@@ -1,131 +1,121 @@
 library(shiny)
 library(munsell)
 library(bslib)
-library(Deriv)
-library(plotly)
+library(ggplot2)
 
-ui <- bslib::page_fluid(
-  # Main plot area
-  
-  mainPanel(
-    
-    fluidRow(
-      column(2, "Generate data:",
-                numericInput("Mean", "\u03BC", value = 8, step = 1),
-                numericInput("SD", "\u03C3", value = 10, min = 0.1, step = 0.25),
-                numericInput("N", "N", value = 200, min = 2, step = 20)),
-    
-    column(10,  bslib::card(plotlyOutput(outputId = "NLL_plot"), full_screen = TRUE),
-           "Note: Plane is slightly off near MLEs due to rounding needed for fast rendering of visualization."))
-  ))
-
-
+ui <- fluidPage(
+  fluidRow(
+    column(2, 
+           "Prior Shape:",
+           numericInput("alpha", "\u03B1", value = 8, min = 0.1, step = 1),
+           numericInput("beta", "\u03B2", value = 9, min = 0.1, step = 1),
+           numericInput("true_prob", "True Probability", value = 0.6, min = 0.01, max = 0.99, step = 0.01),
+           numericInput("N", "N Total", value = 100, min = 1, max = 1000, step = 1),
+           numericInput("N_available", "N Available", value = 10, min = 1, max = 100, step = 1),
+           actionButton("sample_btn", "Draw Samples")
+    ),
+    column(10,  
+           bslib::card(plotOutput(outputId = "Prior_plot"), full_screen = TRUE),
+           HTML("Note: The plot will show the estimated true probability of a binary variable with (MAP) and without priors (ML) if N data points are available, indicated by <b>N available</b>. The values of the <b>N available</b> data point (0 or 1) is also shown. Increase to see how the Estimates update!")
+    )
+  )
+)
 
 server <- function(input, output, session) {
   
-
-  output$NLL_plot <- renderPlotly({
-    nll_one <- deriv(~ -2 * (-0.5 * log(2 * pi * sigma^2) - ((x - mu)^2) / (2 * sigma^2)),
-                     c("mu", "sigma"), function.arg = TRUE, hessian = TRUE)
-    
-    nll <- function(b) {
-      v <- nll_one(b[1], b[2])
-      f <- sum(v)
-      gr <- colSums(attr(v, "gradient"))
-      hess <- apply(attr(v, "hessian"), c(2, 3), sum)
-      attributes(f) <- list(gradient = gr, hessian = hess)
-      f
+  # Dynamically update the max of N_available when N changes
+  observe({
+    updateNumericInput(session, "N_available", max = input$N)
+    if (input$N_available > input$N) {
+      updateNumericInput(session, "N_available", value = input$N)
     }
+  })
+  
+  # Reactive value to store sampled data
+  sampled_data <- reactiveVal(NULL)
+  
+  # Update sampled data when button is pressed
+  observeEvent(input$sample_btn, {
+    sampled_data(rbinom(input$N, size = 1, prob = input$true_prob))
+  })
+  
+  output$Prior_plot <- renderPlot({
     
+    alpha <- input$alpha
+    beta <- input$beta
+    true_prob <- input$true_prob
+    mode_beta <- (alpha - 1)/(alpha + beta - 2)
+    max_dens <- dbeta(mode_beta, alpha, beta)
     
-    # Sample data
-    set.seed(87824)
+    p_grid <- seq(from = 0.01, to = 0.99, length.out = 300)
     
-    parameters <- c(input$Mean, input$SD)
-    N <- input$N
-    
-    # global variable
-    x <<- rnorm(N, mean = parameters[1], sd = parameters[2])
-    
-    # Grid
-    sigma_lb <- ifelse(parameters[2] <= 5, 0.1, parameters[2] - 5)
-    
-    mu_values <- seq(parameters[1] - 5, parameters[1] + 5, by = 0.1)
-    sigma_values <- seq(sigma_lb, parameters[2] + 5, by = 0.1)
-    
-    # Allocate matrices
-    LL_matrix <- matrix(NA, length(mu_values), length(sigma_values))
-    hover_text <- matrix("", length(mu_values), length(sigma_values))
-    
-    # Compute LL, gradients, and Hessians
-    for (i in 1:length(mu_values)) {
-      for (j in 1:length(sigma_values)) {
-        mu <- mu_values[i]
-        sigma <- sigma_values[j]
-        result <- nll(c(mu, sigma))
-        
-        grad <- attr(result, "gradient")
-        hess <- attr(result, "hessian")
-        
-        LL_matrix[i, j] <- result
-        
-        hover_text[j, i] <- paste0(
-          "mu: ", round(mu, 2), "<br>",
-          "sigma: ", round(sigma, 2), "<br>",
-          "NLL: ", round(result, 2), "<br>",
-          "∇mu: ", round(grad[1], 2), ", ∇²mu: ", round(hess[1, 1], 2), "<br>",
-          "∇sigma: ", round(grad[2], 2),", ∇²sigma: ", round(hess[2, 2], 2), "<br>",
-          #,"∇²mu_sigma: ", round(hess[1, 2], 2
-          "Update Rule: par - (∇par/∇²par)", "<br>",
-          "mu<sub>new</sub> = ", round(round(mu, 2) - round(grad[1], 2)/round(hess[1, 1], 2), 2),
-          ", sigma<sub>new</sub> = ", round(round(sigma, 2) - round(grad[2], 2)/round(hess[2, 2], 2), 2))
-      }
-    }
-    
-    
-    #  minimum
-    mu_min <- round(mean(x), 2)
-    sigma_min <- round(sd(x), 2)
-    nll_min <- round(nll(c(mu_min, sigma_min)), 2)
-    
-    # Plot
-    plot_ly(
-      x = mu_values,
-      y = sigma_values,
-      z = LL_matrix,
-      type = "surface",
-      text = hover_text,
-      hoverinfo = "text"
-    ) %>%
-      layout(
-        scene = list(
-          xaxis = list(title = "mu"),
-          yaxis = list(title = "sigma"),
-          zaxis = list(title = "Negative Log-Likelihood")
-        )
-      ) %>%
-      # Add point at estimated mean/sd
-      add_markers(
-        x = mu_min,
-        y = sigma_min,
-        z = nll_min,
-        marker = list(color = "red", size = 7),
-        name = "Minimum",
-        hoverinfo = "text",
-        text = paste0(
-          "<b>Maximum Likelihood Estimate </b><br>",
-          "mu = ", round(mu_min, 2), "<br>",
-          "sigma = ", round(sigma_min, 2), "<br>",
-          "NLL = ", round(nll_min, 2)
-        )
+    if (is.null(sampled_data())) {
+      # Plot before any samples: only prior + true probability
+      segments_df <- data.frame(
+        x = true_prob,
+        xend = true_prob,
+        y = 0,
+        yend = max_dens/2,
+        label = "True Probability"
       )
-    
-    
+      
+      ggplot(data = data.frame(x = c(0, 1)), aes(x = x)) +
+        geom_function(fun = dbeta, args = list(shape1 = alpha, shape2 = beta), 
+                      color = "blue", lty = 2) +
+        annotate("text", x = mode_beta, y = max_dens/1.2, label = "Prior \n Distribution") +
+        geom_segment(data = segments_df,
+                     aes(x = x, xend = xend, y = y, yend = yend, color = label),
+                     size = 1.5) +
+        theme_classic() +
+        scale_color_manual(values = c("black")) +
+        scale_y_continuous(expand = c(0,0)) +
+        theme(axis.title.y=element_blank(),
+              axis.text.y=element_blank(),
+              axis.ticks.y=element_blank(),
+              axis.line.y = element_blank()) +
+        labs(color = "")
+      
+    } else {
+      # Plot after samples: prior + ML/MAP estimates
+      prior <- dbeta(p_grid, shape1 = alpha, shape2 = beta)
+      data <- sampled_data()
+      ML_res <- MAP_res <- numeric(length(data))
+      
+      for(i in 1:length(data)){
+        likelihood <- sapply(data[1:i], function(x) dbinom(x, size = 1, prob = p_grid))
+        max_ml <- which.max(rowSums(log(likelihood)))
+        max_map <- which.max(rowSums(log(likelihood)) + log(prior))
+        ML_res[i] <- p_grid[max_ml]
+        MAP_res[i] <- p_grid[max_map]
+      }
+      
+      N_data <- min(input$N_available, length(data))
+      segments_df <- data.frame(
+        x = c(true_prob, ML_res[N_data], MAP_res[N_data]),
+        xend = c(true_prob, ML_res[N_data], MAP_res[N_data]),
+        y = 0,
+        yend = max_dens/2,
+        label = c("True Probability", "No Prior", "With Prior")
+      )
+      
+      ggplot(data = data.frame(x = c(0, 1)), aes(x = x)) +
+        geom_function(fun = dbeta, args = list(shape1 = alpha, shape2 = beta), color = "blue", lty = 2) +
+        annotate("text", x = mode_beta, y = max_dens/1.2, label = "Prior \n Distribution") +
+        annotate("text", x = mode_beta, y = max_dens/1.4, label = paste("data point", input$N_available, "\n was a", data[input$N_available]))+
+        geom_segment(data = segments_df,
+                     aes(x = x, xend = xend, y = y, yend = yend, color = label),
+                     size = 1) +
+        scale_color_manual(values = c("red", "black", "blue")) +
+        theme_classic() +
+        scale_y_continuous(expand = c(0,0)) +
+        theme(axis.title.y=element_blank(),
+              axis.text.y=element_blank(),
+              axis.ticks.y=element_blank(),
+              axis.line.y = element_blank()) +
+        labs(color = "")
+    }
     
   })
 }
 
-
-# Run the Shiny app
 shinyApp(ui = ui, server = server)
-
